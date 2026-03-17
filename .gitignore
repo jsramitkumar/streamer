@@ -1,0 +1,6 @@
+.env
+recordings/
+*.mp4
+__pycache__/
+*.pyc
+node_modules/

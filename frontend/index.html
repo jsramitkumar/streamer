@@ -1,0 +1,416 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; connect-src ws: wss: http: https:; img-src 'self' data:; style-src 'self' 'unsafe-inline';" />
+  <title>AI Camera Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+    }
+    header {
+      background: #161b22;
+      border-bottom: 1px solid #30363d;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    .badge {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #238636;
+      color: #fff;
+      display: none;
+    }
+    .badge.visible { display: inline-block; }
+
+    #controls {
+      padding: 12px 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      border-bottom: 1px solid #21262d;
+      background: #161b22;
+    }
+    #controls label { font-size: 0.85rem; color: #8b949e; }
+    #cameraInput {
+      background: #0d1117;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 0.85rem;
+      width: 120px;
+    }
+    button {
+      background: #238636;
+      border: none;
+      color: #fff;
+      padding: 6px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    button:hover { background: #2ea043; }
+    button.danger { background: #da3633; }
+    button.danger:hover { background: #f85149; }
+    button.secondary { background: #21262d; border: 1px solid #30363d; }
+    button.secondary:hover { background: #30363d; }
+
+    #cameras {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(480px, 1fr));
+      gap: 16px;
+      padding: 16px 20px;
+    }
+
+    .cam-card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .cam-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #21262d;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .cam-status {
+      font-size: 0.72rem;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #da3633;
+      color: #fff;
+    }
+    .cam-status.live { background: #238636; }
+    .cam-body {
+      position: relative;
+      background: #000;
+      aspect-ratio: 4/3;
+    }
+    .cam-body canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+    }
+    .cam-overlay {
+      position: absolute;
+      bottom: 6px;
+      left: 8px;
+      font-size: 0.7rem;
+      color: #8b949e;
+      pointer-events: none;
+    }
+    .cam-footer {
+      padding: 8px 12px;
+      display: flex;
+      gap: 8px;
+    }
+
+    #recordings {
+      padding: 16px 20px;
+    }
+    #recordings h2 { font-size: 0.95rem; margin-bottom: 10px; color: #8b949e; }
+    #recList {
+      list-style: none;
+      max-height: 220px;
+      overflow-y: auto;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+    }
+    #recList li {
+      padding: 8px 14px;
+      border-bottom: 1px solid #21262d;
+      font-size: 0.82rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    #recList li:last-child { border-bottom: none; }
+    #recList a { color: #58a6ff; text-decoration: none; }
+    #recList a:hover { text-decoration: underline; }
+
+    video#player {
+      width: 100%;
+      max-width: 640px;
+      border-radius: 8px;
+      background: #000;
+      margin-top: 10px;
+      display: none;
+    }
+    video#player.visible { display: block; }
+
+    .fps-counter { color: #3fb950; font-size: 0.72rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>AI Camera Dashboard</h1>
+  <span id="globalBadge" class="badge">LIVE</span>
+</header>
+
+<div id="controls">
+  <label for="cameraInput">Camera ID</label>
+  <input id="cameraInput" type="text" value="cam1" maxlength="64"
+         pattern="[a-zA-Z0-9_\-]+" title="Alphanumeric, dash or underscore" />
+  <button id="addBtn">+ Add Camera</button>
+</div>
+
+<div id="cameras"></div>
+
+<div id="recordings">
+  <h2>Recordings</h2>
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+    <input id="recCamInput" class="" style="background:#0d1117;border:1px solid #30363d;color:#e6edf3;border-radius:6px;padding:5px 10px;font-size:0.85rem;width:120px"
+           type="text" placeholder="Camera ID" />
+    <button id="loadRec" class="secondary">Load Recordings</button>
+  </div>
+  <ul id="recList"><li style="color:#8b949e;padding:8px 14px">No recordings loaded.</li></ul>
+  <video id="player" controls></video>
+</div>
+
+<script>
+  'use strict';
+
+  // Backend (Express) serves this file directly and handles /api/* and /ws/*
+  // on the same host:port — no proxy layer needed.
+  // Works unchanged locally, on LAN, or through a CF Tunnel.
+  const BACKEND_HTTP = `${location.protocol}//${location.host}`;
+  const BACKEND_WS   = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}`;
+
+  // Sanitise a text string for safe insertion into the DOM
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  // Validate camera IDs before using them
+  const CAM_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+  function isValidCamId(id) { return CAM_ID_RE.test(id); }
+
+  const camerasEl = document.getElementById('cameras');
+  const globalBadge = document.getElementById('globalBadge');
+  const activeCams  = new Set();
+
+  function updateGlobalBadge() {
+    globalBadge.classList.toggle('visible', activeCams.size > 0);
+  }
+
+  // ─── Camera card ────────────────────────────────────────────────────────────
+  function addCamera(camId) {
+    if (!isValidCamId(camId)) {
+      alert('Invalid camera ID. Use only letters, numbers, dashes or underscores.');
+      return;
+    }
+    if (document.getElementById(`card-${camId}`)) {
+      alert(`Camera "${camId}" is already open.`);
+      return;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'cam-card';
+    card.id = `card-${camId}`;
+    card.innerHTML = `
+      <div class="cam-header">
+        <span>${escapeHtml(camId)}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="fps-counter" id="fps-${camId}">-- fps</span>
+          <span class="cam-status" id="status-${camId}">CONNECTING</span>
+          <button class="danger" data-remove="${escapeHtml(camId)}">&#x2715;</button>
+        </div>
+      </div>
+      <div class="cam-body">
+        <canvas id="canvas-${camId}"></canvas>
+        <div class="cam-overlay" id="det-${camId}"></div>
+      </div>
+      <div class="cam-footer">
+        <button class="secondary" data-snapshot="${escapeHtml(camId)}">&#x1F4F7; Snapshot</button>
+      </div>`;
+
+    camerasEl.appendChild(card);
+
+    card.querySelector(`[data-remove]`).addEventListener('click', () => removeCamera(camId));
+    card.querySelector(`[data-snapshot]`).addEventListener('click', () => takeSnapshot(camId));
+
+    startStream(camId);
+  }
+
+  function removeCamera(camId) {
+    stopStream(camId);
+    const card = document.getElementById(`card-${camId}`);
+    if (card) card.remove();
+    activeCams.delete(camId);
+    updateGlobalBadge();
+  }
+
+  // ─── WebSocket stream ───────────────────────────────────────────────────────
+  const sockets    = {};
+  const retryTimers = {};
+  const fpsData    = {};
+
+  function startStream(camId) {
+    if (sockets[camId]) return;
+
+    const statusEl = document.getElementById(`status-${camId}`);
+    const fpsEl    = document.getElementById(`fps-${camId}`);
+    const canvas   = document.getElementById(`canvas-${camId}`);
+    const detEl    = document.getElementById(`det-${camId}`);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    if (statusEl) { statusEl.textContent = 'CONNECTING'; statusEl.classList.remove('live'); }
+
+    const ws = new WebSocket(`${BACKEND_WS}/ws/${encodeURIComponent(camId)}`);
+    sockets[camId] = ws;
+    fpsData[camId] = { count: 0, last: performance.now() };
+
+    ws.onopen = () => {
+      if (statusEl) { statusEl.textContent = 'LIVE'; statusEl.classList.add('live'); }
+      activeCams.add(camId);
+      updateGlobalBadge();
+    };
+
+    ws.onmessage = (evt) => {
+      let data;
+      try { data = JSON.parse(evt.data); } catch { return; }
+      if (!data.frame) return;
+
+      const img = new Image();
+      img.onload = () => {
+        if (canvas.width !== img.width)  canvas.width  = img.width;
+        if (canvas.height !== img.height) canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+
+        // Draw detection boxes
+        if (Array.isArray(data.detections)) {
+          ctx.lineWidth = 2;
+          ctx.font = '13px system-ui';
+          data.detections.forEach(d => {
+            ctx.strokeStyle = '#39d353';
+            ctx.strokeRect(d.x, d.y, d.w, d.h);
+            const label = `${d.label || ''} ${d.conf !== undefined ? (d.conf * 100).toFixed(0) + '%' : ''}`;
+            ctx.fillStyle = 'rgba(0,0,0,0.55)';
+            ctx.fillRect(d.x, d.y - 16, ctx.measureText(label).width + 6, 17);
+            ctx.fillStyle = '#39d353';
+            ctx.fillText(label, d.x + 3, d.y - 3);
+          });
+          if (detEl) detEl.textContent = `${data.detections.length} detection${data.detections.length !== 1 ? 's' : ''}`;
+        }
+
+        // FPS counter
+        const fd = fpsData[camId];
+        fd.count++;
+        const now = performance.now();
+        if (now - fd.last >= 1000) {
+          if (fpsEl) fpsEl.textContent = `${fd.count} fps`;
+          fd.count = 0;
+          fd.last  = now;
+        }
+      };
+      img.src = 'data:image/jpeg;base64,' + data.frame;
+    };
+
+    ws.onclose = () => {
+      if (!document.getElementById(`card-${camId}`)) return; // card removed
+      if (statusEl) { statusEl.textContent = 'RECONNECTING'; statusEl.classList.remove('live'); }
+      activeCams.delete(camId);
+      updateGlobalBadge();
+      delete sockets[camId];
+      // Exponential back-off reconnect (max 10 s)
+      const delay = Math.min((retryTimers[camId]?.delay || 1000) * 1.5, 10000);
+      retryTimers[camId] = { delay, timer: setTimeout(() => startStream(camId), delay) };
+    };
+
+    ws.onerror = () => ws.close();
+  }
+
+  function stopStream(camId) {
+    const ws = sockets[camId];
+    if (ws) { ws.onclose = null; ws.close(); delete sockets[camId]; }
+    const rt = retryTimers[camId];
+    if (rt) { clearTimeout(rt.timer); delete retryTimers[camId]; }
+  }
+
+  // ─── Snapshot ─────────────────────────────────────────────────────────────────
+  function takeSnapshot(camId) {
+    const canvas = document.getElementById(`canvas-${camId}`);
+    if (!canvas) return;
+    const a = document.createElement('a');
+    a.href     = canvas.toDataURL('image/jpeg', 0.92);
+    a.download = `${camId}_${new Date().toISOString().replace(/[:.]/g, '-')}.jpg`;
+    a.click();
+  }
+
+  // ─── Recordings ──────────────────────────────────────────────────────────────
+  document.getElementById('loadRec').addEventListener('click', async () => {
+    const camId = document.getElementById('recCamInput').value.trim();
+    if (!isValidCamId(camId)) { alert('Invalid camera ID'); return; }
+
+    const list = document.getElementById('recList');
+    list.innerHTML = '<li style="color:#8b949e;padding:8px 14px">Loading…</li>';
+
+    try {
+      const resp = await fetch(`${BACKEND_HTTP}/api/recordings/${encodeURIComponent(camId)}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const files = await resp.json();
+
+      if (!files.length) {
+        list.innerHTML = '<li style="color:#8b949e;padding:8px 14px">No recordings found.</li>';
+        return;
+      }
+
+      list.innerHTML = files.map(f =>
+        `<li>
+          <span>${escapeHtml(f)}</span>
+          <a href="#" data-cam="${escapeHtml(camId)}" data-file="${escapeHtml(f)}">&#x25B6; Play</a>
+        </li>`
+      ).join('');
+
+      list.querySelectorAll('a[data-file]').forEach(a => {
+        a.addEventListener('click', (e) => {
+          e.preventDefault();
+          const player = document.getElementById('player');
+          const src    = `${BACKEND_HTTP}/api/recordings/${encodeURIComponent(a.dataset.cam)}/${encodeURIComponent(a.dataset.file)}`;
+          player.src = src;
+          player.classList.add('visible');
+          player.play();
+        });
+      });
+    } catch (err) {
+      list.innerHTML = `<li style="color:#f85149;padding:8px 14px">Error: ${escapeHtml(err.message)}</li>`;
+    }
+  });
+
+  // ─── Wire up controls ─────────────────────────────────────────────────────────
+  document.getElementById('addBtn').addEventListener('click', () => {
+    addCamera(document.getElementById('cameraInput').value.trim());
+  });
+  document.getElementById('cameraInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('addBtn').click();
+  });
+
+  // Auto-open default camera
+  addCamera('cam1');
+</script>
+</body>
+</html>
+

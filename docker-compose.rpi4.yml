@@ -1,0 +1,54 @@
+# RPi4 override — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.rpi4.yml up --build
+#
+# What this changes vs the base file:
+#   - Pins all images to linux/arm64 so they build and run on the RPi4
+#   - Lowers AI sample rate (CPU inference is slower on the RPi4 Cortex-A72)
+#   - Sets CPU thread limits so the AI process doesn't saturate all 4 cores
+#   - Adds swap-friendly memory limits
+#
+# Cloudflare Tunnel is managed externally (existing cloudflared container).
+# Point your existing CF tunnel at:  http://backend:3000
+#   (or http://localhost:8080 if using host port)
+# Express serves the SPA on / and the API on /api/* and /ws/*.
+#
+# NOTE: UDP port 5000 (ESP32-CAM → RPi4) is a LAN-only connection.
+# Cloudflare Tunnel does NOT carry arbitrary UDP.  The ESP32-CAM must be on
+# the same local network as the RPi4. The tunnel exposes HTTP / WebSocket only.
+
+version: "3.9"
+
+services:
+
+  mqtt:
+    platform: linux/arm64
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
+  ai:
+    platform: linux/arm64
+    environment:
+      # Use the lightest nano model – best balance of speed/accuracy on RPi4 CPU
+      MODEL_PATH:         ${AI_MODEL_PATH:-yolov8n.pt}
+      CONF_THRESH:        ${AI_CONF_THRESH:-0.40}
+      # Restrict PyTorch / OpenBLAS / OpenMP to 3 threads - leave 1 core free
+      OMP_NUM_THREADS:        "3"
+      OPENBLAS_NUM_THREADS:   "3"
+      MKL_NUM_THREADS:        "3"
+      NUMEXPR_NUM_THREADS:    "3"
+    deploy:
+      resources:
+        limits:
+          memory: 1G      # yolov8n needs ~500-700 MB on CPU
+
+  backend:
+    platform: linux/arm64
+    environment:
+      # Reduce AI call frequency – frame analysis takes ~2-4 s on RPi4 CPU
+      AI_SAMPLE_RATE: ${AI_SAMPLE_RATE:-0.10}
+    deploy:
+      resources:
+        limits:
+          memory: 256M

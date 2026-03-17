@@ -1,0 +1,109 @@
+
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────
+# Override defaults in a .env file (copy .env.example to .env)
+# ─────────────────────────────────────────────────────────────────────────
+
+networks:
+  streamer:
+    driver: bridge
+
+volumes:
+  recordings:
+  mqtt_data:
+  mqtt_log:
+
+services:
+
+  # ─── MQTT broker ───────────────────────────────────────────────────────────
+  mqtt:
+    image: eclipse-mosquitto:2.0
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mqtt_data:/mosquitto/data
+      - mqtt_log:/mosquitto/log
+    networks:
+      - streamer
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ─── AI detection service ───────────────────────────────────────────────────
+  ai:
+    # To use the pre-built image from Docker Hub instead of building locally:
+    # image: ${DOCKERHUB_USERNAME:-youruser}/streamer-ai:latest
+    build: ./ai-service
+    restart: unless-stopped
+    environment:
+      MODEL_PATH:    ${AI_MODEL_PATH:-yolov8n.pt}
+      CONF_THRESH:   ${AI_CONF_THRESH:-0.40}
+      PORT:          "5001"
+    networks:
+      - streamer
+    # Expose only on internal network; not published to host by default
+    # Uncomment below to expose for debugging:
+    # ports:
+    #   - "5001:5001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5001/healthz"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  # ─── Backend (UDP ingest + WebSocket + REST API + SPA) ──────────────────────
+  # Build context is the project root so the Dockerfile can copy frontend/index.html
+  backend:
+    # To use the pre-built image from Docker Hub instead of building locally:
+    # image: ${DOCKERHUB_USERNAME:-youruser}/streamer-backend:latest
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:3000"
+      - "${BACKEND_UDP_PORT:-5000}:5000/udp"
+    environment:
+      PORT:             "3000"
+      UDP_PORT:         "5000"
+      AI_URL:           "http://ai:5001"
+      MQTT_URL:         "mqtt://mqtt:1883"
+      MQTT_USER:        ${MQTT_USER:-}
+      MQTT_PASS:        ${MQTT_PASS:-}
+      REC_PATH:         /app/recordings
+      SEG_TIME:         ${SEG_TIME:-300}
+      AI_SAMPLE_RATE:   ${AI_SAMPLE_RATE:-0.33}
+      CORS_ORIGIN:      ${CORS_ORIGIN:-*}
+      MAX_FRAME_BYTES:  ${MAX_FRAME_BYTES:-5242880}
+    volumes:
+      - recordings:/app/recordings
+    depends_on:
+      ai:
+        condition: service_healthy
+      mqtt:
+        condition: service_started
+    networks:
+      - streamer
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
