@@ -10,8 +10,8 @@ on:
   workflow_dispatch:       # allow manual runs from the Actions tab
 
 env:
-  # Override by adding a repo variable DOCKERHUB_USERNAME in Settings → Variables
-  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+  # Set both as repository secrets: Settings → Secrets and variables → Actions → Secrets
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
   # Generate the timestamp tag once and share it across both build jobs
@@ -47,7 +47,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
@@ -85,7 +85,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push
